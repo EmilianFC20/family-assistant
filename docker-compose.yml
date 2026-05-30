@@ -1,0 +1,26 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    environment:
+      # Ollama is running natively on the desktop (Windows, no WSL) at 10.73.73.9:11434
+      # so OpenWebUI on the server dials out to the GPU machine over the LAN.
+      - OLLAMA_BASE_URL=http://10.73.73.9:11434
+
+  bot:
+    build: .
+    container_name: family-assistant-bot
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - open-webui
+    # The bot reaches OpenWebUI via the Docker-internal hostname, no port forwarding needed.
+    # Ensure .env contains: OPENWEBUI_URL=http://open-webui:8080
+
+volumes:
+  open-webui:
