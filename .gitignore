@@ -1,3 +1,6 @@
+CLAUDE.md
+.claude/
+
 # Environment / secrets — never commit these
 .env
 
