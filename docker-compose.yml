@@ -1,26 +1,33 @@
 services:
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: open-webui
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - open-webui:/app/backend/data
-    environment:
-      # Ollama is running natively on the desktop (Windows, no WSL) at 10.73.73.9:11434
-      # so OpenWebUI on the server dials out to the GPU machine over the LAN.
-      - OLLAMA_BASE_URL=http://10.73.73.9:11434
-
+  # ---------------------------------------------------------------------------
+  # Bot — Discord bridge. Runs on WSL2 alongside OpenWebUI.
+  # OpenWebUI is started separately (via /opt/docker-compose.yaml in WSL2).
+  # network_mode: host lets the bot reach localhost:8080 (OpenWebUI) directly.
+  # ---------------------------------------------------------------------------
   bot:
     build: .
     container_name: family-assistant-bot
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      - open-webui
-    # The bot reaches OpenWebUI via the Docker-internal hostname, no port forwarding needed.
-    # Ensure .env contains: OPENWEBUI_URL=http://open-webui:8080
+    network_mode: host
 
-volumes:
-  open-webui:
+  # ---------------------------------------------------------------------------
+  # open-webui — kept here for reference / alternative deployments only.
+  # In the WSL2 setup this service is started from /opt/docker-compose.yaml;
+  # do NOT run it from this file on the same host (port conflict).
+  # To use this on a different host (e.g. OMV server), uncomment and adjust
+  # OLLAMA_BASE_URL to point at the machine running Ollama.
+  # ---------------------------------------------------------------------------
+  # open-webui:
+  #   image: ghcr.io/open-webui/open-webui:main
+  #   container_name: open-webui
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - open-webui:/app/backend/data
+  #   environment:
+  #     - OLLAMA_BASE_URL=http://10.73.73.9:11434   # Ollama host (native Windows or WSL2)
+
+# volumes:
+#   open-webui:

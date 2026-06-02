@@ -3,21 +3,25 @@
 A Discord bot that bridges a family Discord server with a self-hosted [OpenWebUI](https://github.com/open-webui/open-webui) / [Ollama](https://ollama.com) stack. Ask it questions about the house, get answers grounded in your uploaded house manual.
 
 ```
-Discord  →  bot (OMV server)  →  OpenWebUI (OMV server)  →  Ollama (desktop GPU)
+Discord  →  bot (WSL2)  →  OpenWebUI (WSL2)  →  Ollama (WSL2, desktop GPU)
 ```
 
-The bot does no AI work itself — it only shuttles messages. All reasoning and knowledge live in OpenWebUI, backed by a custom model called `Family1` with the house manual as a knowledge base.
+The whole stack runs in WSL2 on the desktop (`10.73.73.9`), where the RTX 3070 Ti lives. The bot does no AI work itself — it only shuttles messages. All reasoning and knowledge live in OpenWebUI, backed by a custom model (`qwen3.5-tuned` / `Family1`) with the house manual as a knowledge base.
+
+> Looking for *why* it's wired this way (NAT vs mirrored, native Ollama vs Docker, the portproxy)? See **CLAUDE.md → Design decisions & justifications**.
 
 ## Quick start
 
-### 1. Prerequisites
+### 1. Prerequisites (already set up — for reference)
 
 | Component | Where it runs |
 |---|---|
-| Ollama (native Windows, GPU) | Desktop `10.73.73.9:11434` |
-| OpenWebUI + bot (Docker Compose) | OMV server `10.73.73.10` |
+| Ollama (native systemd, GPU/CUDA) | WSL2 on desktop — `0.0.0.0:11434` |
+| OpenWebUI (Docker, host networking) | WSL2 on desktop — `:8080`, started from `/opt/docker-compose.yaml` |
+| Family Assistant bot (Docker, host networking) | WSL2 on desktop — this repo |
+| Nginx Proxy Manager (public domain) | OMV server `10.73.73.10` → `asistente.emilian.website` → `10.73.73.9:8080` |
 
-See [Setup guide](#setup-guide) below for the one-time infrastructure steps.
+WSL2 uses **NAT** networking; LAN access is preserved via a Windows `netsh portproxy` refreshed each boot by the "WSL portproxy" scheduled task. (Do **not** switch WSL to mirrored mode — see CLAUDE.md.)
 
 ### 2. Clone and configure
 
@@ -35,7 +39,7 @@ docker compose up -d
 docker compose logs -f bot
 ```
 
-OpenWebUI is available at `http://<server-ip>:8080`.
+OpenWebUI is at `http://localhost:8080` (or `https://asistente.emilian.website`).
 
 ## Bot commands
 
@@ -50,7 +54,7 @@ OpenWebUI is available at `http://<server-ip>:8080`.
 family_discord_openwebui_bot.py   # the bot — the only production code
 requirements.txt                  # Python deps
 Dockerfile                        # bot container image
-docker-compose.yml                # OpenWebUI + bot, wired together
+docker-compose.yml                # the bot (host networking); OpenWebUI runs separately
 .env.example                      # .env template
 ```
 
@@ -63,49 +67,44 @@ docker-compose.yml                # OpenWebUI + bot, wired together
 3. Enable **Message Content Intent** (Bot → Privileged Gateway Intents).
 4. Invite the bot with **Send Messages**, **Read Message History**, **Embed Links**.
 
-### Ollama on the desktop (one-time)
+### Ollama (already running in WSL)
 
-1. Install [Ollama for Windows](https://ollama.com/download/windows) — it detects NVIDIA GPUs automatically.
-2. Add a system environment variable `OLLAMA_HOST=0.0.0.0:11434`, then restart Ollama.
-3. Add a Windows Defender Firewall inbound rule: TCP port `11434`, scoped to your LAN subnet only.
-4. Pull your base model: `ollama pull <model-name>`.
+Native systemd service. Listens on `0.0.0.0:11434`, uses the RTX 3070 Ti via CUDA. Manage with
+`systemctl status ollama`. Verify the GPU is in use with `ollama ps` (`PROCESSOR = 100% GPU`).
 
-### OpenWebUI on the server
+### OpenWebUI (already running in WSL)
 
-The `docker-compose.yml` in this repo runs OpenWebUI pointed at Ollama on the desktop. Before the first `docker compose up`:
+Docker container `open-webui` (`network_mode: host`), started from `/opt/docker-compose.yaml` with
+`OLLAMA_BASE_URL=http://0.0.0.0:11434`. Its data volume holds the house manual, the model definition,
+and accounts — **back it up before any teardown**:
 
-1. **Migrate your existing data volume** (house manual, model definitions, accounts):
-   ```bash
-   # On the old machine (WSL/desktop), back up:
-   docker run --rm -v open-webui:/data -v $PWD:/backup alpine \
-     tar czf /backup/owui-data.tgz -C /data .
-   scp owui-data.tgz user@<server>:~/family-assistant/
-
-   # On the server, restore:
-   docker volume create open-webui
-   docker run --rm -v open-webui:/data -v $PWD:/backup alpine \
-     tar xzf /backup/owui-data.tgz -C /data
-   ```
-2. `docker compose up -d`
+```bash
+docker run --rm -v open-webui:/data -v $PWD:/backup alpine \
+  tar czf /backup/owui-data.tgz -C /data .
+```
 
 ### OpenWebUI API key
 
-1. Open `http://<server-ip>:8080`, sign in.
+1. Open `http://localhost:8080`, sign in.
 2. **Settings → Account → API Keys → Generate**.
 3. Add to `.env`: `OPENWEBUI_API_KEY=sk-...`
 4. `docker compose up -d` (restart the bot with the key).
 
 ## Architecture notes
 
-- **Outbound-only**: the bot dials out to Discord and OpenWebUI; nothing connects inward. Do not add inbound listeners without revisiting this.
-- **No WSL networking**: Ollama runs natively on Windows (not inside WSL) so the GPU is used directly and there is no dynamic-IP / `netsh portproxy` problem.
-- **Endpoint**: the bot uses OpenWebUI's OpenAI-compatible `/api/chat/completions` endpoint with a Bearer token.
-- **`Family1` model**: the system prompt and house-manual knowledge collection are stored in the OpenWebUI data volume (`/app/backend/data`), not in Ollama. They travel with the volume backup.
+- **Outbound-only**: the bot dials out to Discord and OpenWebUI; nothing connects inward.
+- **All in WSL2 on the desktop**: Ollama needs the desktop GPU; OpenWebUI + bot are co-located with
+  `network_mode: host` to reach it over `localhost`. The OMV server (1.8 GB RAM) only runs NPM.
+- **NAT, not mirrored**: mirrored mode broke `127.0.0.1` loopback (Ollama GPU discovery) and the VPN;
+  NAT fixes both. LAN access uses a portproxy auto-refreshed on each boot.
+- **Endpoint**: the bot uses OpenWebUI's OpenAI-compatible `/api/chat/completions` with a Bearer token.
+- **Model lives in OpenWebUI**: the system prompt + house-manual knowledge collection are in the
+  OpenWebUI data volume (`/app/backend/data`), not in Ollama.
 
 ## Development
 
 ```bash
 pip install -r requirements.txt
-# Set OPENWEBUI_URL=http://10.73.73.10:8080 in .env for local dev
+# OPENWEBUI_URL=http://localhost:8080 in .env
 python3 family_discord_openwebui_bot.py
 ```
