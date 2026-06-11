@@ -6,7 +6,7 @@ A Discord bot that bridges a family Discord server with a self-hosted [OpenWebUI
 Discord  →  bot (WSL2)  →  OpenWebUI (WSL2)  →  Ollama (WSL2, desktop GPU)
 ```
 
-The whole stack runs in WSL2 on the desktop (`10.73.73.9`), where the RTX 3070 Ti lives. The bot does no AI work itself — it only shuttles messages. All reasoning and knowledge live in OpenWebUI, backed by a custom model (`qwen3.5-tuned` / `Family1`) with the house manual as a knowledge base.
+The whole stack runs in WSL2 on the desktop (`10.73.73.9`), where the RTX 3070 Ti lives. The bot does no AI work itself — it only shuttles messages. All reasoning and knowledge live in OpenWebUI, backed by a custom model (`Family1`, engine `qwen3.5-4b-tuned` — a 4B sized to fit the 3070 Ti's 8 GB at 100% GPU) with the house manual as a knowledge base.
 
 > Looking for *why* it's wired this way (NAT vs mirrored, native Ollama vs Docker, the portproxy)? See **CLAUDE.md → Design decisions & justifications**.
 

@@ -1,0 +1,12 @@
+# Engine model for the Family Assistant bot.
+# Qwen3.5 4B sized to run FULLY on the RTX 3070 Ti's 8 GB VRAM (100% GPU, no CPU spill).
+# Rebuild:  ollama create qwen3.5-4b-tuned -f qwen-family-4b.Modelfile
+# Verify:   ollama ps   # PROCESSOR must read 100% GPU
+FROM qwen3.5:4b
+PARAMETER num_ctx 4096
+PARAMETER num_gpu 99
+PARAMETER temperature 0.7
+PARAMETER top_k 20
+PARAMETER top_p 0.9
+PARAMETER presence_penalty 1.5
+PARAMETER repeat_penalty 1.1

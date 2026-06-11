@@ -11,7 +11,7 @@ Setup
 
    DISCORD_TOKEN=your_discord_bot_token
    OPENWEBUI_URL=http://localhost:8080           # bare base URL — script appends /api/chat/completions
-   OPENWEBUI_MODEL=qwen3.5-tuned:latest
+   OPENWEBUI_MODEL=qwen3.5-4b-tuned:latest
    OPENWEBUI_API_KEY=your_openwebui_api_key      # Settings → Account → API Keys in OpenWebUI
 
    IMPORTANT: OPENWEBUI_URL must be the bare base URL (no trailing slash, no path).
@@ -59,7 +59,7 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 OPENWEBUI_URL = os.getenv("OPENWEBUI_URL", "").rstrip("/")
-OPENWEBUI_MODEL = os.getenv("OPENWEBUI_MODEL", "qwen3.5-tuned:latest")
+OPENWEBUI_MODEL = os.getenv("OPENWEBUI_MODEL", "qwen3.5-4b-tuned:latest")
 OPENWEBUI_API_KEY = os.getenv("OPENWEBUI_API_KEY", "")
 
 if not DISCORD_TOKEN:
