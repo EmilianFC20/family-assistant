@@ -90,25 +90,21 @@ def ask_openwebui(question: str) -> str:
     if OPENWEBUI_API_KEY:
         headers["Authorization"] = f"Bearer {OPENWEBUI_API_KEY}"
 
+    # No system message here on purpose: the OpenWebUI model "Family1" already
+    # carries its own (Spanish) system prompt + the "Manual Casa" knowledge base.
+    # Sending a second system message here competes with / overrides that prompt.
     payload = {
         "model": OPENWEBUI_MODEL,
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a family smart-home assistant. "
-                    "Answer clearly and briefly. "
-                    "Use the uploaded house manual when relevant. "
-                    "If you are unsure, say you do not know."
-                ),
-            },
             {"role": "user", "content": question},
         ],
         "stream": False,
     }
 
     log.info("POST %s  model=%s", ASK_ENDPOINT, OPENWEBUI_MODEL)
-    response = requests.post(ASK_ENDPOINT, json=payload, headers=headers, timeout=90)
+    # 180s, not 90s: a cold model load + first RAG retrieval can take ~2 min on
+    # the 4B engine; once warm, answers return in ~4 s. See CLAUDE.md latency notes.
+    response = requests.post(ASK_ENDPOINT, json=payload, headers=headers, timeout=180)
 
     if not response.ok:
         log.error(
