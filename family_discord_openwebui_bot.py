@@ -102,8 +102,10 @@ def ask_openwebui(question: str) -> str:
     }
 
     log.info("POST %s  model=%s", ASK_ENDPOINT, OPENWEBUI_MODEL)
-    # 180s, not 90s: a cold model load + first RAG retrieval can take ~2 min on
-    # the 4B engine; once warm, answers return in ~4 s. See CLAUDE.md latency notes.
+    # 180s, not 90s. Measured 2026-08-11 (BENCHMARKS.md): warm answers land in 3-6 s and
+    # a genuine cold start (engine load + first RAG) in 9.8 s, so this ceiling is generous
+    # on purpose. Kept because a timeout you never reach costs nothing, while one that is
+    # slightly too short costs the exact request you most wanted to work.
     response = requests.post(ASK_ENDPOINT, json=payload, headers=headers, timeout=180)
 
     if not response.ok:

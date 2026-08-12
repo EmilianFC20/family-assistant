@@ -56,7 +56,17 @@ requirements.txt                  # Python deps
 Dockerfile                        # bot container image
 docker-compose.yml                # the bot (host networking); OpenWebUI runs separately
 .env.example                      # .env template
+qwen-family-4b.Modelfile          # the Ollama engine definition (4B, num_ctx 4096)
+BENCHMARKS.md                     # measured performance — the source the blog posts cite
+bench/                            # the scripts that produce BENCHMARKS.md
 ```
+
+## Performance
+
+Measured on the RTX 3070 Ti, not estimated — see **[BENCHMARKS.md](BENCHMARKS.md)**. Warm answers
+land in **3–6 s** end to end through OpenWebUI (fastest 2.3 s, genuine cold start 9.8 s), the 4B
+engine generates at **103 tok/s**, and it leaves 1.4–2.2 GB of VRAM free where the old 9.7B engine
+left 271 MiB. That headroom, not the parameter count, is why the 4B is the production engine.
 
 ## Setup guide
 
