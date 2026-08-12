@@ -5,7 +5,8 @@ posts ([part 1](https://emilian.website/posts/deploy-private-ai-ollama/),
 [part 2](https://emilian.website/posts/discord-bot-private-ai-assistant/)) and
 [`CLAUDE.md`](CLAUDE.md) can cite a source instead of a memory.
 
-**Measured 2026-08-11.** Re-run the scripts in [`bench/`](bench/) to refresh.
+**Measured 2026-08-11**, except §6 (retrieval quality), measured 2026-08-12. Re-run the scripts
+in [`bench/`](bench/) to refresh.
 
 ## Test machine
 
@@ -146,12 +147,126 @@ nothing), but the two-minute cold start should not be presented as current behav
 `llama3.1` is **not** installed. Blog part 1 mentions it only as the historically accurate 2024
 choice.
 
+## 6. Retrieval quality — does the right chunk come back?
+
+**Measured 2026-08-12.** Retrieval only: for each question, ask
+`/api/v1/retrieval/query/collection` for the top-k chunks and check whether the gold string is
+present verbatim. **No LLM is involved**, so this isolates a retrieval regression from a
+generation one.
+
+> ⚠️ **Not comparable to the 2026-07-31 run.** That question set lived in a session scratchpad
+> that no longer exists, so this is a **rebuilt** 16-question set. The earlier 9/16 → 12/16
+> progression and these numbers are two different rulers; do not quote them in the same table.
+> Compare only *within* this run.
+>
+> The set is kept outside the repo (`~/Emster/rag_goldset.json`, `RAG_GOLDSET`) because the gold
+> strings are real family passwords. Nothing here or in the script's output contains one.
+
+### The corpus
+
+| collection | chunks | of which base64 noise | real text chunks |
+|---|---|---|---|
+| `Manual Casa` — **what production uses today** | 744 | **698 (94 %)** | 46 |
+| `ZZ TEST manual limpio` — base64 stripped | 40 | 0 | 40 |
+
+The manual is 836 KB of which ~17 KB is text; the rest is screenshots embedded as base64.
+(CLAUDE.md records 959 chunks / 913 noise for this collection — the live collection now measures
+744 / 698. Same 94–95 % ratio, different absolute count.)
+
+### Scores
+
+| config | k=3 | k=5 | k=8 |
+|---|---|---|---|
+| production (bloated manual) | **11/16** | **12/16** | 12/16 |
+| clean manual (base64 stripped) | **12/16** | 12/16 | 12/16 |
+
+**Raising `TOP_K` buys at most one question, and cleaning the manual buys at most one.** This is
+the finding that matters, and it contradicts the optimistic reading of the earlier run.
+
+### Why more k does not help: the misses are not near-misses
+
+Rank of the gold chunk in a k=40 sweep — the distribution is **bimodal**, with nothing in between:
+
+| | hits | misses |
+|---|---|---|
+| rank on the bloated manual | 1–4 | 15, 17, 19, 24 |
+| rank on the clean manual | 1–3 | 10, 15, 16, 18 |
+
+Every question the retriever gets right, it gets right in the **top 4**. Every question it gets
+wrong, the answer sits at **rank 10 or worse**. There is no `k` that rescues those without
+dragging in ten chunks of noise first — `k=18` would be needed for the worst one, which is far
+outside the context budget. **Tuning `k` is the wrong lever.**
+
+Cleaning the manual does improve ranking broadly, even where the verdict is unchanged
+(mesh model 24 → 10, router model 4 → 2, one SSID lookup 3 → 1). It is still worth doing —
+it just is not the three-point win the earlier table implied.
+
+### What actually fails
+
+All four persistent failures are **proper nouns living in markdown tables** — three Wi-Fi SSID
+lookups and one hardware model. This is precisely the shape BM25 is good at and dense embeddings
+are bad at, which is the case for installing a real cross-encoder reranker
+(`BAAI/bge-reranker-v2-m3`, multilingual) rather than turning on hybrid search alone. Hybrid
+search was **not** re-tested in this run; the 2026-07-30 finding that it is a no-op without a
+reranker still stands (`RAG_RERANKING_MODEL` is empty, so the ensemble is re-scored by the same
+MiniLM cosine and the ranking is unchanged).
+
+One question — the password for a particular network — is **unanswerable by any retriever**: the
+manual defines that SSID twice with different passwords, in two different houses. The gold set
+accepts either, so it scores as a hit. That is a **data bug in the manual**, not a retrieval
+result — rename one of the two networks.
+
+> **Identifiers are anonymized in this file.** This repository is public, and SSID names are
+> geolocatable through public wardriving databases, so question ids appear here as descriptions
+> ("one SSID lookup", "mesh model") rather than the real labels. The gold set keeps the real ids
+> and stays outside version control; `bench_rag.py` prints them locally, which is where they
+> belong. Same reasoning that kept the home subnet out of the blog posts.
+
+### Context budget
+
+Measured with the engine's own tokenizer — the retrieved chunk text joined with blank lines and
+sent to `/api/generate`, reading back `prompt_eval_count`. This is chunk text only: it excludes
+Open WebUI's RAG template and the system prompt, which together run ~1,100 tokens. The chat
+template adds nothing measurable to a raw `/api/generate` prompt (an empty prompt counts 0).
+
+| k | median | max |
+|---|---|---|
+| 3 | 282 tok | 510 |
+| 5 | 493 tok | 726 |
+| 8 | 762 tok | 1,090 |
+
+> **Corrected 2026-08-12.** An earlier revision of this table read 381/600/1,074 median and
+> 611/882/1,296 max. Those numbers did not reproduce — they are inflated by roughly 25–40 %.
+> Prompt caching was ruled out as the cause (a cache-busted run agrees with the cached one to
+> within the length of the busting prefix). The conclusion is unchanged and in fact strengthened,
+> and the *delta* between k=3 and k=5 was right either way at ~210–220 tokens.
+
+Cross-check against the real path: end-to-end requests measured in §4 carried 1,547–2,284 prompt
+tokens in total. Subtracting the ~1,100 of template and system prompt leaves ~450–1,180 for
+chunks, which brackets the k=3 and k=5 rows above. The two measurements agree.
+
+Against `num_ctx 4096`, `k=5` is comfortably affordable and `k=8` is survivable — the budget is
+**not** the binding constraint it was previously assumed to be.
+
+**Production runs `TOP_K = 3` today** (`/api/v1/retrieval/config`, verified 2026-08-12), along
+with `CHUNK_SIZE 1000`, `CHUNK_OVERLAP 100`, hybrid search **off** and an empty
+`RAG_RERANKING_MODEL`. So production is currently scoring **11/16**, the k=3 row.
+
+**Recommendation:** `k=5` while the manual is still bloated (it is worth the one question,
+11 → 12, for ~210 extra tokens). Once the manual is cleaned, `k=3` is enough — the clean corpus
+scores the same at 3, 5 and 8. Neither knob reaches the SSID failures; only a reranker or
+restructuring those tables will.
+
 ## Reproducing
 
 ```bash
 python3 bench/bench_generation.py     # section 1 and 2
 python3 bench/bench_thinking.py       # section 3
 python3 bench/bench_endtoend.py       # section 4 (needs OPENWEBUI_API_KEY in .env)
+
+# section 6 — needs RAG_GOLDSET (kept outside the repo; it holds real passwords)
+python3 bench/bench_rag.py --collection <knowledge-id> --label production \
+        --k 3 5 8 --source /path/to/manual.md --markdown
 ```
 
 `bench_endtoend.py` restarts the `open-webui` container to measure a genuine cold start.
